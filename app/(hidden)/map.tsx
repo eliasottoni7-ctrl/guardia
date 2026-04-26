@@ -8,6 +8,7 @@ import {
   Modal,
   FlatList,
   Alert,
+  Dimensions,
 } from 'react-native';
 import MapView, { PROVIDER_GOOGLE, Region, Marker, Heatmap } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -15,12 +16,14 @@ import { useRouter } from 'expo-router';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useLocationStore } from '../../store/useLocationStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useTripStore } from '../../store/useTripStore';
 import { supabase } from '../../lib/supabase';
 import { dispatchAlert } from '../../lib/dispatchAlert';
+import { fetchActiveTrip, updateTripStatus } from '../../lib/trips';
 import { useLocationSharing } from '../../hooks/useLocationSharing';
 import { theme } from '../../constants/theme';
 import { darkMapStyle } from '../../lib/mapStyle';
@@ -50,6 +53,36 @@ const CATEGORY_COLORS: Record<string, string> = {
   inseguranca_geral: '#F59E0B',
 };
 
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const SOS_SIZE = Math.min(112, Math.max(96, SCREEN_WIDTH * 0.29));
+const SIDE_ACTION_SIZE = Math.min(72, Math.max(62, SCREEN_WIDTH * 0.18));
+const STATUS_RADIUS_METERS = 500;
+
+function coordinateBounds(lat: number, lng: number, radiusMeters: number) {
+  const latDelta = radiusMeters / 111320;
+  const lngDelta = radiusMeters / (111320 * Math.max(Math.cos((lat * Math.PI) / 180), 0.01));
+
+  return {
+    latMin: lat - latDelta,
+    latMax: lat + latDelta,
+    lngMin: lng - lngDelta,
+    lngMax: lng + lngDelta,
+  };
+}
+
+function distanceMeters(aLat: number, aLng: number, bLat: number, bLng: number) {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const earthRadius = 6371000;
+  const dLat = toRad(bLat - aLat);
+  const dLng = toRad(bLng - aLng);
+  const lat1 = toRad(aLat);
+  const lat2 = toRad(bLat);
+  const h =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return 2 * earthRadius * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
 function timeAgo(dateStr: string): string {
   const now = Date.now();
   const then = new Date(dateStr).getTime();
@@ -65,16 +98,20 @@ function timeAgo(dateStr: string): string {
 }
 
 export default function MapScreen() {
+  const insets = useSafeAreaInsets();
   const { location, errorMsg, setLocation, setErrorMsg } = useLocationStore();
-  const { session } = useAuthStore();
+  const { session, profile, setProfile } = useAuthStore();
   const router = useRouter();
+  const canAccessMap = !session?.user?.id || profile?.kyc_verified === true;
 
   const mapRef = useRef<MapView>(null);
   const [currentRegion, setCurrentRegion] = useState<Region | null>(null);
+  const [displayLocation, setDisplayLocation] = useState('Localizando...');
 
   // States
   const [categories, setCategories] = useState<RiskCategory[]>([]);
   const [reports, setReports] = useState<RiskReport[]>([]);
+  const [statusReports, setStatusReports] = useState<RiskReport[]>([]);
   const [selectingLocation, setSelectingLocation] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
@@ -84,17 +121,35 @@ export default function MapScreen() {
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [tripTimeRemaining, setTripTimeRemaining] = useState<string>('');
 
-  const { isActive: tripActive, expiresAt: tripExpiresAt, stopTrip } = useTripStore();
+  const { isActive: tripActive, activeTripId, expiresAt: tripExpiresAt, stopTrip, setActiveTrip } = useTripStore();
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { guardiansLocations, updateOwnLocation, fetchGuardiansLocations } = useLocationSharing();
+  const nearbyReports = location
+    ? statusReports.filter((report) => distanceMeters(location.coords.latitude, location.coords.longitude, report.lat, report.lng) <= STATUS_RADIUS_METERS)
+    : [];
+  const statusLevel = nearbyReports.length >= 3 ? 'Atenção moderada' : nearbyReports.length > 0 ? 'Atenção leve' : 'Área estável';
+  const statusColor = nearbyReports.length >= 3 ? '#FBBF24' : nearbyReports.length > 0 ? '#F59E0B' : '#5EEAD4';
+
+  useEffect(() => {
+    async function syncActiveTrip() {
+      if (!session?.user?.id || !canAccessMap) return;
+
+      const { data } = await fetchActiveTrip(session.user.id);
+      if (data) {
+        setActiveTrip(data.id, new Date(data.expires_at).getTime());
+      }
+    }
+
+    syncActiveTrip();
+  }, [canAccessMap, session, setActiveTrip]);
 
   // Polling location updates
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
     
-    if (location) {
+    if (location && canAccessMap) {
       // Upsert immediately on first valid location
       updateOwnLocation(location.coords.latitude, location.coords.longitude);
       
@@ -108,7 +163,7 @@ export default function MapScreen() {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [location, updateOwnLocation, fetchGuardiansLocations]);
+  }, [canAccessMap, location, updateOwnLocation, fetchGuardiansLocations]);
 
   // Monitor the trip timer
   useEffect(() => {
@@ -131,8 +186,13 @@ export default function MapScreen() {
   }, [tripActive, tripExpiresAt]);
 
   const handleDeadmanTrigger = async () => {
+    const tripId = activeTripId;
     stopTrip();
     if (!session?.user?.id) return;
+
+    if (tripId) {
+      await updateTripStatus(tripId, 'expired');
+    }
     
     // In a real scenario, this would contact an external SMS gateway or push notification service
     // For MVP, we register the alert and notify the user that SOS was triggered automatically.
@@ -147,13 +207,24 @@ export default function MapScreen() {
     });
   };
 
+  const handleCancelTrip = async () => {
+    const tripId = activeTripId;
+    stopTrip();
+
+    if (tripId) {
+      await updateTripStatus(tripId, 'completed');
+    }
+  };
+
   useEffect(() => {
+    if (!canAccessMap) return;
+
     async function fetchCategories() {
       const { data } = await supabase.from('risk_categories').select('*').order('name');
       if (data) setCategories(data);
     }
     fetchCategories();
-  }, []);
+  }, [canAccessMap]);
 
   const requestLocation = useCallback(async () => {
     setErrorMsg(null);
@@ -171,8 +242,10 @@ export default function MapScreen() {
   }, [setLocation, setErrorMsg]);
 
   useEffect(() => {
-    requestLocation();
-  }, [requestLocation]);
+    if (canAccessMap) {
+      requestLocation();
+    }
+  }, [canAccessMap, requestLocation]);
 
   const fetchNearbyReports = useCallback(async (region: Region) => {
     const latMin = region.latitude - region.latitudeDelta / 2;
@@ -192,6 +265,53 @@ export default function MapScreen() {
 
     if (data) setReports(data as RiskReport[]);
   }, []);
+
+  const fetchStatusReports = useCallback(async (lat: number, lng: number) => {
+    const bounds = coordinateBounds(lat, lng, STATUS_RADIUS_METERS);
+
+    const { data } = await supabase
+      .from('map_risk_reports')
+      .select('*, risk_categories(*)')
+      .gte('lat', bounds.latMin)
+      .lte('lat', bounds.latMax)
+      .gte('lng', bounds.lngMin)
+      .lte('lng', bounds.lngMax)
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (data) setStatusReports(data as RiskReport[]);
+  }, []);
+
+  const resolveDisplayLocation = useCallback(async (lat: number, lng: number) => {
+    try {
+      const [address] = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+      const city = address?.city || address?.subregion || address?.district;
+      const state = address?.region;
+
+      if (city && state) {
+        setDisplayLocation(`${city} • ${state}`);
+      } else if (city || state) {
+        setDisplayLocation(city || state || 'Localização atual');
+      } else {
+        setDisplayLocation('Localização atual');
+      }
+    } catch {
+      setDisplayLocation('Localização atual');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!location || !canAccessMap) return;
+
+    fetchStatusReports(location.coords.latitude, location.coords.longitude);
+    resolveDisplayLocation(location.coords.latitude, location.coords.longitude);
+  }, [
+    canAccessMap,
+    fetchStatusReports,
+    location?.coords.latitude,
+    location?.coords.longitude,
+    resolveDisplayLocation,
+  ]);
 
   const onRegionChangeComplete = useCallback(
     (region: Region) => {
@@ -235,6 +355,7 @@ export default function MapScreen() {
       Alert.alert('Erro', 'Não foi possível salvar. Tente novamente.');
     } else {
       Alert.alert('Sucesso', 'Perigo documentado.');
+      fetchStatusReports(location.coords.latitude, location.coords.longitude);
       if (currentRegion) {
         fetchNearbyReports(currentRegion);
       } else {
@@ -246,7 +367,7 @@ export default function MapScreen() {
         });
       }
     }
-  }, [currentRegion, location, session, fetchNearbyReports, selectedCategories]);
+  }, [currentRegion, location, session, fetchNearbyReports, fetchStatusReports, selectedCategories]);
 
   const handleConfirmReport = useCallback(
     async (report: RiskReport) => {
@@ -283,6 +404,31 @@ export default function MapScreen() {
   );
 
   // Fallbacks
+  if (!canAccessMap) {
+    return (
+      <View style={styles.centered}>
+        <Feather name="lock" size={48} color={theme.colors.primary} style={{ marginBottom: 16 }} />
+        <Text style={styles.errorTitle}>Validação pendente</Text>
+        <Text style={styles.errorText}>
+          O acesso ao mapa fica bloqueado até a confirmação da conta. Isso protege a rede e reduz entrada indevida.
+        </Text>
+        <TouchableOpacity style={styles.retryButton} onPress={() => router.replace('/(hidden)/auth/sign-up')} activeOpacity={0.8}>
+          <Text style={styles.retryText}>Concluir validação</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.secondaryButton}
+          onPress={async () => {
+            await supabase.auth.signOut();
+            setProfile(null);
+          }}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.secondaryButtonText}>Sair da conta</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   if (!location && !errorMsg) {
     return (
       <View style={styles.centered}>
@@ -330,12 +476,9 @@ export default function MapScreen() {
              coordinate={{ latitude: guardian.lat, longitude: guardian.lng }}
              title={guardian.full_name || 'Guardiã'}
              description={guardian.username ? `@${guardian.username}` : ''}
+             pinColor="#3BA6A3"
              zIndex={100}
-           >
-             <View style={[styles.markerBody, { backgroundColor: theme.colors.primary, borderColor: theme.colors.surface }]}>
-               <Feather name="shield" size={14} color="#FFF" />
-             </View>
-           </Marker>
+           />
         ))}
 
         {showHeatmap && reports.length > 0 ? (
@@ -355,45 +498,57 @@ export default function MapScreen() {
               key={report.id}
               coordinate={{ latitude: report.lat, longitude: report.lng }}
               onPress={() => setSelectedReport(report)}
-            >
-              <View style={[styles.markerBody, { backgroundColor: CATEGORY_COLORS[report.category_code] || theme.colors.danger }]}>
-                <Feather 
-                  name={CATEGORY_ICONS[report.category_code] || 'alert-circle'} 
-                  size={14} 
-                  color="#FFF" 
-                />
-              </View>
-            </Marker>
+              title="Relato de risco"
+              description={`${distanceMeters(location!.coords.latitude, location!.coords.longitude, report.lat, report.lng).toFixed(0)} m de distância`}
+              pinColor={CATEGORY_COLORS[report.category_code] || theme.colors.danger}
+              zIndex={80}
+            />
           ))
         )}
       </MapView>
 
-      {/* Top Profile Icon */}
       {!selectingLocation && (
-        <TouchableOpacity 
-          style={styles.profileBtnTopRight}
-          onPress={() => router.push('/(hidden)/profile')}
-        >
-          <BlurView intensity={80} tint="dark" style={styles.profileBtnBlur}>
-            <Feather name="user" size={20} color={theme.colors.text} />
-          </BlurView>
-        </TouchableOpacity>
-      )}
+        <View style={[styles.topChrome, { paddingTop: Math.max(insets.top + 8, 42) }]}>
+          <View style={styles.appHeader}>
+            <LinearGradient colors={theme.colors.dangerGradient} style={styles.brandIcon}>
+              <Feather name="shield" size={26} color="#FFF" />
+            </LinearGradient>
+            <View style={styles.headerCopy}>
+              <Text style={styles.brandTitle}>Guardiã</Text>
+              <Text style={styles.brandSubtitle} numberOfLines={1}>{displayLocation}</Text>
+            </View>
+            <TouchableOpacity style={styles.notificationButton} onPress={() => router.push('/(hidden)/alerts')} activeOpacity={0.8}>
+              <Feather name="bell" size={24} color={theme.colors.text} />
+              <View style={styles.notificationDot} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.profileCircle} onPress={() => router.push('/(hidden)/profile')} activeOpacity={0.8}>
+              <Feather name="user" size={25} color={theme.colors.text} />
+            </TouchableOpacity>
+          </View>
 
-      {/* Trip Active Top Banner */}
-      {tripActive && (
-         <View style={styles.tripBannerCont}>
-           <BlurView intensity={90} tint="dark" style={styles.tripBannerBlur}>
-             <Feather name="shield" size={20} color={theme.colors.primary} />
-             <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={styles.tripBannerTitle}>Modo Volta pra Casa</Text>
-                <Text style={styles.tripBannerTime}>{tripTimeRemaining} restantes</Text>
-             </View>
-             <TouchableOpacity style={styles.tripCancelBtn} onPress={stopTrip}>
-                <Text style={styles.tripCancelText}>Cheguei (Desarmar)</Text>
-             </TouchableOpacity>
-           </BlurView>
-         </View>
+          <BlurView intensity={75} tint="dark" style={styles.statusCard}>
+            <View style={[styles.statusIconRing, { borderColor: statusColor }]}>
+              <Feather name="shield" size={24} color={statusColor} />
+            </View>
+            <View style={styles.statusCopy}>
+              <Text style={styles.statusLabel}>Status da área</Text>
+              <Text style={[styles.statusTitle, { color: statusColor }]}>{statusLevel}</Text>
+              <Text style={styles.statusText}>
+                <Text style={{ color: statusColor, fontWeight: '800' }}>{nearbyReports.length}</Text>
+                {` sinalizações de risco em até 500 m`}
+              </Text>
+            </View>
+            <Feather name="chevron-right" size={22} color={theme.colors.textMuted} />
+          </BlurView>
+
+          <TouchableOpacity
+            style={[styles.heatmapFloating, showHeatmap && styles.heatmapFloatingActive]}
+            onPress={() => setShowHeatmap(!showHeatmap)}
+            activeOpacity={0.82}
+          >
+            <Feather name="thermometer" size={20} color={showHeatmap ? '#FFF' : theme.colors.text} />
+          </TouchableOpacity>
+        </View>
       )}
 
       {/* Target Crosshair */}
@@ -405,63 +560,66 @@ export default function MapScreen() {
         </View>
       )}
 
-      {/* Controls Dashboard */}
       {!selectingLocation ? (
-        <View style={styles.dashboardContainer}>
-          <BlurView intensity={70} tint="dark" style={styles.dashboardGlass}>
-            <TouchableOpacity style={styles.dashBtn} onPress={() => router.push('/(hidden)/network')}>
-              <Feather name="users" size={22} color={theme.colors.text} />
-              <Text style={styles.dashLabel}>Rede</Text>
+        <>
+          {tripActive && (
+            <View style={styles.tripBannerCont}>
+              <BlurView intensity={85} tint="dark" style={styles.tripBannerBlur}>
+                <Feather name="navigation" size={18} color={theme.colors.primary} />
+                <View style={styles.tripBannerCopy}>
+                  <Text style={styles.tripBannerTitle}>Trajeto ativo</Text>
+                  <Text style={styles.tripBannerTime}>{tripTimeRemaining} restantes</Text>
+                </View>
+                <TouchableOpacity style={styles.tripCancelBtn} onPress={handleCancelTrip}>
+                  <Text style={styles.tripCancelText}>Cheguei</Text>
+                </TouchableOpacity>
+              </BlurView>
+            </View>
+          )}
+
+          <View style={[styles.quickActions, { bottom: 112 + Math.max(insets.bottom, 10) }]}>
+            <TouchableOpacity style={styles.sideAction} onPress={() => router.push('/(hidden)/network')} activeOpacity={0.84}>
+              <BlurView intensity={70} tint="dark" style={[styles.sideActionBlur, { width: SIDE_ACTION_SIZE, height: SIDE_ACTION_SIZE, borderRadius: SIDE_ACTION_SIZE / 2 }]}>
+                <Feather name="users" size={21} color={theme.colors.text} />
+                <Text style={styles.sideActionText}>Meus{'\n'}contatos</Text>
+              </BlurView>
             </TouchableOpacity>
 
-            <View style={styles.dashDivider} />
-
-            <TouchableOpacity style={styles.dashBtn} onPress={() => setShowHeatmap(!showHeatmap)}>
-              <Feather name="thermometer" size={22} color={showHeatmap ? theme.colors.primary : theme.colors.text} />
-              <Text style={[styles.dashLabel, showHeatmap && { color: theme.colors.primary }]}>
-                Calor
-              </Text>
+            <TouchableOpacity style={[styles.sosButton, { width: SOS_SIZE, height: SOS_SIZE, borderRadius: SOS_SIZE / 2 }]} onPress={() => router.push('/(hidden)/send')} activeOpacity={0.88}>
+              <LinearGradient colors={['#FF4F68', '#E11D48']} style={[styles.sosGradient, { borderRadius: SOS_SIZE / 2 }]}>
+                <Text style={styles.sosText}>SOS</Text>
+                <Text style={styles.sosSubtext}>Pedir ajuda</Text>
+              </LinearGradient>
             </TouchableOpacity>
 
-            <View style={styles.dashDivider} />
-
-            <TouchableOpacity style={styles.dashBtn} onPress={() => router.push('/(hidden)/trip')}>
-              <Feather name="clock" size={22} color={tripActive ? theme.colors.primary : theme.colors.text} />
-              <Text style={[styles.dashLabel, tripActive && { color: theme.colors.primary }]}>
-                Viagem
-              </Text>
+            <TouchableOpacity style={styles.sideAction} onPress={() => setSelectingLocation(true)} activeOpacity={0.84}>
+              <BlurView intensity={70} tint="dark" style={[styles.sideActionBlur, styles.reportAction, { width: SIDE_ACTION_SIZE, height: SIDE_ACTION_SIZE, borderRadius: SIDE_ACTION_SIZE / 2 }]}>
+                <Feather name="plus" size={25} color={theme.colors.text} />
+                <Text style={styles.sideActionText}>Reportar{'\n'}risco</Text>
+              </BlurView>
             </TouchableOpacity>
+          </View>
 
-            <View style={styles.dashDivider} />
-
-            {/* Danger Action */}
-            <TouchableOpacity style={styles.dashBtnAction} onPress={() => router.push('/(hidden)/send')}>
-               <LinearGradient
-                 colors={theme.colors.dangerGradient}
-                 style={styles.dangerGradientBtn}
-                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-               >
-                  <Feather name="shield" size={22} color="#FFF" />
-               </LinearGradient>
-            </TouchableOpacity>
-          </BlurView>
-
-          {/* Add Pin FAB */}
-          <TouchableOpacity 
-            style={styles.mainFab} 
-            onPress={() => setSelectingLocation(true)}
-            activeOpacity={0.8}
-          >
-             <LinearGradient
-               colors={theme.colors.primaryGradient}
-               style={styles.mainFabGradient}
-             >
-                <Feather name="plus" size={30} color="#FFF" />
-             </LinearGradient>
-          </TouchableOpacity>
-        </View>
+          <View style={[styles.bottomNavWrap, { bottom: Math.max(insets.bottom, 10) + 12 }]}>
+            <BlurView intensity={80} tint="dark" style={styles.bottomNav}>
+              <TouchableOpacity style={[styles.navItem, styles.navItemActive]} activeOpacity={0.8}>
+                <Feather name="home" size={24} color="#FF68C8" />
+                <Text style={styles.navTextActive}>Mapa</Text>
+                <View style={styles.navIndicator} />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.navItem} onPress={() => router.push('/(hidden)/network')} activeOpacity={0.8}>
+                <Feather name="users" size={24} color={theme.colors.textMuted} />
+                <Text style={styles.navText}>Apoio</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.navItem} onPress={() => router.push('/(hidden)/trip')} activeOpacity={0.8}>
+                <Feather name="navigation" size={24} color={tripActive ? theme.colors.primary : theme.colors.textMuted} />
+                <Text style={[styles.navText, tripActive && { color: theme.colors.primary }]}>Trajeto</Text>
+              </TouchableOpacity>
+            </BlurView>
+          </View>
+        </>
       ) : (
-        <BlurView intensity={80} tint="dark" style={styles.confirmTargetPanel}>
+        <BlurView intensity={80} tint="dark" style={[styles.confirmTargetPanel, { bottom: Math.max(insets.bottom, 12) + 18 }]}>
           <Text style={styles.confirmTargetLabel}>Mova o mapa para ajustar o pino</Text>
           <View style={styles.confirmRow}>
             <TouchableOpacity style={styles.confirmCancelBtn} onPress={() => setSelectingLocation(false)}>
@@ -604,9 +762,57 @@ const styles = StyleSheet.create({
   errorText: { textAlign: 'center', color: theme.colors.textMuted, fontSize: 15, marginBottom: 24 },
   retryButton: { backgroundColor: theme.colors.primary, paddingVertical: 14, paddingHorizontal: 32, borderRadius: 12 },
   retryText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
+  secondaryButton: { marginTop: 12, paddingVertical: 12, paddingHorizontal: 24, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border },
+  secondaryButtonText: { color: theme.colors.textMuted, fontWeight: '700', fontSize: 15 },
+
+  // New map chrome
+  topChrome: { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: 18, zIndex: 20 },
+  appHeader: { flexDirection: 'row', alignItems: 'center' },
+  brandIcon: { width: 54, height: 54, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
+  headerCopy: { flex: 1 },
+  brandTitle: { color: theme.colors.text, fontSize: 30, fontWeight: '900' },
+  brandSubtitle: { color: '#B7A6E8', fontSize: 16, fontWeight: '700', marginTop: 2 },
+  notificationButton: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+  notificationDot: { position: 'absolute', top: 9, right: 10, width: 10, height: 10, borderRadius: 5, backgroundColor: '#FF3E78' },
+  profileCircle: { width: 54, height: 54, borderRadius: 27, borderWidth: 1.5, borderColor: theme.colors.primary, backgroundColor: 'rgba(139, 92, 246, 0.2)', alignItems: 'center', justifyContent: 'center' },
+  statusCard: { minHeight: 86, marginTop: 14, borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', backgroundColor: 'rgba(20, 18, 38, 0.74)', padding: 12, flexDirection: 'row', alignItems: 'center' },
+  statusIconRing: { width: 54, height: 54, borderRadius: 27, borderWidth: 1.2, alignItems: 'center', justifyContent: 'center', marginRight: 12, backgroundColor: 'rgba(0,0,0,0.12)' },
+  statusCopy: { flex: 1 },
+  statusLabel: { color: '#B7A6E8', fontSize: 13, fontWeight: '700' },
+  statusTitle: { fontSize: 21, fontWeight: '900', marginTop: 2 },
+  statusText: { color: '#B7A6E8', fontSize: 13, fontWeight: '600', marginTop: 2 },
+  heatmapFloating: { position: 'absolute', right: 24, top: 154, width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(24, 24, 40, 0.86)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)', alignItems: 'center', justifyContent: 'center' },
+  heatmapFloatingActive: { backgroundColor: theme.colors.primary, borderColor: '#D8B4FE' },
+  quickActions: { position: 'absolute', left: 30, right: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', zIndex: 20 },
+  sideAction: { alignItems: 'center', justifyContent: 'center' },
+  sideActionBlur: { overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', backgroundColor: 'rgba(32, 28, 52, 0.72)', alignItems: 'center', justifyContent: 'center' },
+  reportAction: { borderColor: 'rgba(139, 92, 246, 0.55)', backgroundColor: 'rgba(67, 38, 116, 0.72)' },
+  sideActionText: { color: theme.colors.text, fontSize: 10, textAlign: 'center', fontWeight: '700', lineHeight: 12, marginTop: 2 },
+  sosButton: { borderWidth: 6, borderColor: 'rgba(255, 119, 153, 0.34)', shadowColor: '#E11D48', shadowOpacity: 0.48, shadowRadius: 18, shadowOffset: { width: 0, height: 0 }, elevation: 14 },
+  sosGradient: { flex: 1, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.35)' },
+  sosText: { color: '#FFF', fontSize: 34, fontWeight: '900', letterSpacing: 0 },
+  sosSubtext: { color: '#FFF', fontSize: 13, fontWeight: '700', marginTop: 0 },
+  bottomNavWrap: { position: 'absolute', left: 18, right: 18, zIndex: 20 },
+  bottomNav: { height: 82, borderRadius: 28, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', backgroundColor: 'rgba(22, 20, 39, 0.86)', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingHorizontal: 8 },
+  navItem: { flex: 1, height: 62, alignItems: 'center', justifyContent: 'center', borderRadius: 22 },
+  navItemActive: { backgroundColor: 'rgba(139, 92, 246, 0.26)' },
+  navText: { color: theme.colors.textMuted, fontSize: 13, fontWeight: '700', marginTop: 4 },
+  navTextActive: { color: '#FF68C8', fontSize: 13, fontWeight: '800', marginTop: 4 },
+  navIndicator: { width: 34, height: 3, borderRadius: 2, backgroundColor: '#FF68C8', marginTop: 5 },
 
   // Markers
   markerBody: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: '#FFF', justifyContent: 'center', alignItems: 'center', ...theme.shadows.glow },
+  markerPinWrap: { alignItems: 'center', justifyContent: 'center', width: 34, height: 42 },
+  markerPinCircle: { width: 31, height: 31, borderRadius: 16, borderWidth: 2.5, borderColor: 'rgba(255,255,255,0.88)', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.35, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 6 },
+  markerPinTip: { width: 13, height: 13, transform: [{ rotate: '45deg' }], marginTop: -8, borderRightWidth: 2, borderBottomWidth: 2, borderRightColor: 'rgba(255,255,255,0.88)', borderBottomColor: 'rgba(255,255,255,0.88)' },
+  supportMarker: { backgroundColor: '#3BA6A3', borderColor: '#BFF8F0' },
+  supportMarkerTip: { backgroundColor: '#3BA6A3', borderRightColor: '#BFF8F0', borderBottomColor: '#BFF8F0' },
+  vectorPinWrap: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
+  vectorPinGlyph: { position: 'absolute', top: 8, left: 0, right: 0, alignItems: 'center' },
+  mapMarkerStack: { alignItems: 'center' },
+  markerLabel: { marginTop: 3, minWidth: 94, alignItems: 'center' },
+  markerLabelTitle: { color: theme.colors.text, fontSize: 12, fontWeight: '800', textAlign: 'center', textShadowColor: '#000', textShadowRadius: 4 },
+  markerLabelSub: { color: '#B7A6E8', fontSize: 11, fontWeight: '700', marginTop: 1, textAlign: 'center', textShadowColor: '#000', textShadowRadius: 4 },
 
   // Crosshair
   centerTarget: { position: 'absolute', top: '50%', left: '50%', width: 40, height: 40, marginLeft: -20, marginTop: -20, justifyContent: 'center', alignItems: 'center' },
@@ -619,8 +825,9 @@ const styles = StyleSheet.create({
   profileBtnBlur: { width: 48, height: 48, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.4)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
 
   // Trip Banner
-  tripBannerCont: { position: 'absolute', top: 60, left: 20, right: 80, borderRadius: 16, overflow: 'hidden' },
-  tripBannerBlur: { flexDirection: 'row', alignItems: 'center', padding: 12, backgroundColor: 'rgba(0,0,0,0.6)', borderWidth: 1, borderColor: theme.colors.primary },
+  tripBannerCont: { position: 'absolute', left: 22, right: 22, bottom: 250, borderRadius: 16, overflow: 'hidden', zIndex: 18 },
+  tripBannerBlur: { flexDirection: 'row', alignItems: 'center', padding: 12, backgroundColor: 'rgba(0,0,0,0.62)', borderWidth: 1, borderColor: theme.colors.primary },
+  tripBannerCopy: { flex: 1, marginLeft: 10 },
   tripBannerTitle: { color: theme.colors.text, fontSize: 13, fontWeight: '700' },
   tripBannerTime: { color: theme.colors.primary, fontSize: 16, fontWeight: '800', marginTop: 2 },
   tripCancelBtn: { backgroundColor: theme.colors.surfaceHighlight, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },

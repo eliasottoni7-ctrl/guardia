@@ -52,7 +52,8 @@ export default function RootLayout() {
 
     if (inHidden) {
       // If navigating into the hidden area
-      const inHiddenAuth = segments[1] === 'auth';
+      const routeSegments = segments as string[];
+      const inHiddenAuth = routeSegments[1] === 'auth';
       
       if (!session && !inHiddenAuth) {
         // trying to enter hidden app without session -> auth screen

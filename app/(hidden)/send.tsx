@@ -77,7 +77,7 @@ export default function SendLocationScreen() {
           <Feather name="arrow-left" size={24} color={theme.colors.textMuted} />
         </TouchableOpacity>
         <View style={styles.dangerIconBadge}>
-          <Feather name="shield-alert" size={40} color={theme.colors.danger} />
+          <Feather name="alert-triangle" size={40} color={theme.colors.danger} />
         </View>
         <Text style={styles.headerTitle}>Disparar Alerta</Text>
         <Text style={styles.headerSubtitle}>
@@ -94,7 +94,7 @@ export default function SendLocationScreen() {
           <Text style={styles.emptyText}>
             Você ainda não adicionou guardiões à sua rede.
           </Text>
-          <TouchableOpacity onPress={() => router.replace('/(hidden)/contacts')} activeOpacity={0.8}>
+          <TouchableOpacity onPress={() => router.replace('/(hidden)/network')} activeOpacity={0.8}>
             <LinearGradient colors={theme.colors.primaryGradient} style={styles.addContactButton}>
               <Text style={styles.addContactText}>Cadastrar Contatos</Text>
             </LinearGradient>

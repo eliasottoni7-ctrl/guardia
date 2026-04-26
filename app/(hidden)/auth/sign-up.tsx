@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -29,7 +29,7 @@ interface SignUpForm {
 
 export default function SignUpWizard() {
   const router = useRouter();
-  const { setProfile } = useAuthStore();
+  const { session, profile, setProfile } = useAuthStore();
   
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [loading, setLoading] = useState(false);
@@ -48,6 +48,13 @@ export default function SignUpWizard() {
   } = useForm<SignUpForm>({
     defaultValues: { fullName: '', username: '', email: '', password: '' },
   });
+
+  useEffect(() => {
+    if (session?.user?.id && profile?.kyc_verified !== true && !createdUserId) {
+      setCreatedUserId(session.user.id);
+      setStep(2);
+    }
+  }, [createdUserId, profile, session]);
 
   // Step 1: Create Account
   async function onStep1Submit(data: SignUpForm) {
@@ -118,7 +125,7 @@ export default function SignUpWizard() {
       return;
     }
     
-    if (result && result.success) {
+    if (result?.success && result.profile) {
       setProfile(result.profile);
       Alert.alert(
         'Bem-vinda!', 

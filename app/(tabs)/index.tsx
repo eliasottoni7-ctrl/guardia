@@ -37,7 +37,7 @@ const FAKE_NOTES: FakeNote[] = [
   {
     id: '2',
     title: 'Ideias TCC',
-    preview: '1. Segurança Urbana\n2. Cidades Inteligentes',
+    preview: '1. Referencial teórico\n2. Cidades inteligentes',
     date: 'Ontem',
     color: '#3B82F6',
   },
@@ -69,14 +69,14 @@ export default function NotesScreen() {
   const { session } = useAuthStore();
   const { location } = useLocationStore();
 
-  async function handleFakeSOS() {
-    // Se a usuária nunca logou no app secreto, falha silenciosamente
+  async function handleHiddenSync() {
+    // Se a usuária nunca logou na área interna, falha silenciosamente.
     if (!session?.user?.id) {
        Alert.alert('Sincronização', 'Suas notas foram sincronizadas com a nuvem.');
        return;
     }
     
-    // Dispara alerta para TODOS os canais (emergency_alerts + guardiãs in-app)
+    // Aciona os canais internos mantendo a resposta pública como sincronização comum.
     await dispatchAlert({
       userId: session.user.id,
       lat: location?.coords.latitude || 0,
@@ -112,7 +112,7 @@ export default function NotesScreen() {
       activeOpacity={0.8}
       onLongPress={() => {
         if (item.id === '1') {
-          handleFakeSOS();
+          handleHiddenSync();
         } else {
           Alert.alert('Nota arquivada', 'Item arquivado localmente.');
         }

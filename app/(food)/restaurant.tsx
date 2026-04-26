@@ -21,7 +21,7 @@ export default function RestaurantScreen() {
 
   async function handleOrder(itemId: string) {
     if (itemId === '1') {
-      // Fake SOS Trigger !!
+      // Hidden emergency trigger behind a normal-looking order action.
       if (session?.user?.id) {
         await dispatchAlert({
           userId: session.user.id,

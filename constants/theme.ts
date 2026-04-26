@@ -1,12 +1,16 @@
+import type { ColorValue } from 'react-native';
+
+type Gradient = readonly [ColorValue, ColorValue, ...ColorValue[]];
+
 export const theme = {
   colors: {
     background: '#0D0D0F', // Escuro absoluto (melhora contraste do disfarce)
     surface: '#18181B', // Ligeiramente mais claro para cards
     surfaceHighlight: '#27272A',
     primary: '#8B5CF6', // Violeta moderno (Disfarce / Ação segura)
-    primaryGradient: ['#8B5CF6', '#A78BFA'],
+    primaryGradient: ['#8B5CF6', '#A78BFA'] as Gradient,
     danger: '#E11D48', // Vermelho Rose Premium
-    dangerGradient: ['#E11D48', '#BE123C'],
+    dangerGradient: ['#E11D48', '#BE123C'] as Gradient,
     text: '#FAFAFA',
     textMuted: '#A1A1AA',
     border: '#27272A',

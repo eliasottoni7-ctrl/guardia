@@ -1,19 +1,25 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { theme } from '../../constants/theme';
 import { useTripStore } from '../../store/useTripStore';
+import { useAuthStore } from '../../store/useAuthStore';
+import { useLocationStore } from '../../store/useLocationStore';
+import { createActiveTrip } from '../../lib/trips';
+import { GuardianBottomNav } from '../../components/GuardianBottomNav';
 
 export default function TripScreen() {
   const router = useRouter();
   const { startTrip, isActive } = useTripStore();
-  const [minutes, setMinutes] = useState(15); // Default to 15 mins
+  const { session } = useAuthStore();
+  const { location } = useLocationStore();
+  const [minutes, setMinutes] = useState(15);
+  const [starting, setStarting] = useState(false);
 
   if (isActive) {
-    // If a trip is already active, we don't need to configure one. Usually handled by layout/map.
     return (
       <View style={styles.container}>
         <View style={styles.header}>
@@ -22,21 +28,38 @@ export default function TripScreen() {
           </TouchableOpacity>
         </View>
         <View style={styles.contentActive}>
-           <Feather name="shield" size={60} color={theme.colors.primary} />
-           <Text style={styles.activeTitle}>Rede Ativa</Text>
-           <Text style={styles.activeSub}>Você já possui um monitoramento em curso.</Text>
-           <TouchableOpacity style={styles.btnAction} onPress={() => router.back()}>
-               <LinearGradient colors={theme.colors.primaryGradient} style={styles.btnGradient}>
-                 <Text style={styles.btnText}>Ver Mapa</Text>
-               </LinearGradient>
-           </TouchableOpacity>
+          <Feather name="shield" size={60} color={theme.colors.primary} />
+          <Text style={styles.activeTitle}>Rede Ativa</Text>
+          <Text style={styles.activeSub}>Você já possui um monitoramento em curso.</Text>
+          <TouchableOpacity style={styles.btnAction} onPress={() => router.back()}>
+            <LinearGradient colors={theme.colors.primaryGradient} style={styles.btnGradient}>
+              <Text style={styles.btnText}>Ver Mapa</Text>
+            </LinearGradient>
+          </TouchableOpacity>
         </View>
+        <GuardianBottomNav active="trip" />
       </View>
     );
   }
 
-  function handleStart() {
-    startTrip(minutes);
+  async function handleStart() {
+    if (!session?.user?.id) return;
+
+    setStarting(true);
+    const { data, error } = await createActiveTrip({
+      userId: session.user.id,
+      minutes,
+      lat: location?.coords.latitude,
+      lng: location?.coords.longitude,
+    });
+    setStarting(false);
+
+    if (error || !data) {
+      Alert.alert('Erro', error || 'Não foi possível iniciar o monitoramento.');
+      return;
+    }
+
+    startTrip(minutes, data.id);
     Alert.alert('Monitoramento Ativo', `Seu timer de ${minutes} minutos começou. Se você não cancelar, suas Guardiãs serão alertadas.`);
     router.replace('/(hidden)/map');
   }
@@ -55,7 +78,7 @@ export default function TripScreen() {
           <Feather name="clock" size={24} color={theme.colors.primary} style={{ marginBottom: 16 }} />
           <Text style={styles.infoTitle}>Timer de Proteção (Dead-man)</Text>
           <Text style={styles.infoText}>
-            Defina um tempo estimado para sua chegada. Se o relógio zerar antes de você desativá-lo, o aplicativo acionará silenciosamente **todas as Guardiãs** da sua rede In-App com o local exato do seu aparelho.
+            Defina um tempo estimado para sua chegada. Se o relógio zerar antes de você desativá-lo, o aplicativo acionará silenciosamente todas as Guardiãs da sua rede In-App com o local exato do seu aparelho.
           </Text>
         </View>
 
@@ -68,18 +91,25 @@ export default function TripScreen() {
               onPress={() => setMinutes(val)}
               style={[styles.timeBtn, minutes === val && styles.timeBtnSelected]}
             >
-               <Text style={[styles.timeBtnText, minutes === val && styles.timeBtnTextSelected]}>{val}m</Text>
+              <Text style={[styles.timeBtnText, minutes === val && styles.timeBtnTextSelected]}>{val}m</Text>
             </TouchableOpacity>
           ))}
         </View>
 
-        <TouchableOpacity style={styles.btnAction} onPress={handleStart} activeOpacity={0.8}>
-           <LinearGradient colors={theme.colors.primaryGradient} style={styles.btnGradient}>
-             <Feather name="play" size={18} color="#FFF" style={{ marginRight: 8 }} />
-             <Text style={styles.btnText}>Iniciar Trajeto Protegido</Text>
-           </LinearGradient>
+        <TouchableOpacity style={styles.btnAction} onPress={handleStart} activeOpacity={0.8} disabled={starting}>
+          <LinearGradient colors={theme.colors.primaryGradient} style={styles.btnGradient}>
+            {starting ? (
+              <ActivityIndicator color="#FFF" size="small" />
+            ) : (
+              <>
+                <Feather name="play" size={18} color="#FFF" style={{ marginRight: 8 }} />
+                <Text style={styles.btnText}>Iniciar Trajeto Protegido</Text>
+              </>
+            )}
+          </LinearGradient>
         </TouchableOpacity>
       </View>
+      <GuardianBottomNav active="trip" />
     </View>
   );
 }
@@ -96,9 +126,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center', marginRight: 16
   },
   headerTitle: { fontSize: 24, fontWeight: '800', color: theme.colors.text },
-  
-  content: { flex: 1, paddingHorizontal: theme.spacing.lg },
-  contentActive: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: theme.spacing.lg },
+
+  content: { flex: 1, paddingHorizontal: theme.spacing.lg, paddingBottom: 128 },
+  contentActive: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: theme.spacing.lg, paddingBottom: 128 },
   activeTitle: { fontSize: 24, fontWeight: '800', color: theme.colors.text, marginTop: 16 },
   activeSub: { fontSize: 16, color: theme.colors.textMuted, marginTop: 8, textAlign: 'center' },
 

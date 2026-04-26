@@ -1,95 +1,108 @@
-# Projeto Guardião - MVP (TCC)
-**Propósito:** Aplicação móvel de ciberproteção feminina e inteligência territorial com mapa colaborativo.
-**Stack:** React Native, Expo, TypeScript, Supabase, Zustand.
+# Projeto Guardião - Review e Roadmap do TCC
 
-## 1. Arquitetura de Dados (Supabase)
-- [x] Tabela `profiles` e trigger de auth.
-- [x] Tabela `risk_categories` e dados iniciais.
-- [x] Tabela `map_risk_reports` (RLS configurado).
-- [x] Tabela `map_risk_confirmations` (RLS configurado).
-- [x] Tabela `trusted_contacts`.
+**Propósito:** aplicação móvel de ciberproteção feminina e inteligência territorial com mapa colaborativo, rede de apoio e modo discreto.
 
-## 2. Roadmap de Execução (Tarefas)
+**Stack:** React Native, Expo Router, TypeScript, Supabase, Zustand.
 
-### Fase 1: Fundação & Autenticação
-- [x] Setup do projeto Expo Router.
-- [x] Configuração e conexão do cliente Supabase.
-- [x] Store do Zustand para sessão.
-- [x] Criação das telas de Sign In e Sign Up.
-- [x] Proteção de rotas (Redirecionamento dinâmico).
+**Status técnico atual:** o projeto passa em `npm run typecheck` (`tsc --noEmit`). O MVP está funcional em base, mas ainda precisa de validação manual em dispositivo/Expo Go e revisão do schema real do Supabase antes da apresentação final.
 
-### Fase 2: Infraestrutura Espacial (Atual)
-- [x] Geração das tipagens do banco (database.types.ts).
-- [x] Instalação do react-native-maps e expo-location.
-- [x] Tela principal renderizando o mapa com a localização da usuária.
+## 1. Estado Atual do MVP
 
-### Fase 3: Mapa Colaborativo
-- [x] UI para adicionar novo pino no mapa.
-- [x] Integração com banco para salvar ponto de risco (com categoria).
-- [x] Renderização dos pinos cadastrados baseados na região visível (Bounding Box).
+### Concluído
+- Autenticação com Supabase e persistência de sessão.
+- Rotas públicas de disfarce (`Lumina Notes` e delivery) e rotas internas sensíveis.
+- Mapa com localização da usuária, pinos colaborativos e heatmap.
+- Cadastro e confirmação de pontos de risco.
+- CRUD de contatos de confiança.
+- Fluxo de preparação de alerta por SMS/share.
+- Perfil interno com código de convite, score, medalhas e preferências.
+- Rede de apoio unificada com contatos SMS, círculo privado e chat em tempo real.
+- Modo "Volta Pra Casa" em memória com temporizador e alerta automático.
 
-### Fase 4: Validação Comunitária e Analítica
-- [x] Funcionalidade de clicar em um pino e "Confirmar Risco".
-- [x] Atualização do contador de confirmações.
-- [x] Toggle para visualização de Heatmap (peso baseado em confirmações).
+### Parcial
+- Chat da rede: UI e integração Realtime estão implementadas; precisa aplicar `supabase_network_chat_schema.sql` no Supabase real.
+- Localização em tempo real: há hooks e permissões de compartilhamento, mas precisa validação de RLS e dados reais.
+- Alertas in-app: há estrutura de listagem/envio, mas ainda sem Realtime ativo.
+- KYC: fluxo é simulado para fins acadêmicos.
+- Medalhas: exibidas no perfil, mas sem regra completa de ganho.
 
-### Fase 5: Rede de Apoio e SOS
-- [x] CRUD de contatos de confiança.
-- [x] Fluxo e UI do Botão SOS (disparo de localização).
+### Pendente
+- Melhorias avançadas do chat: confirmação de leitura, anexos reais e histórico por conversa.
+- Persistência completa do "Volta Pra Casa" no banco.
+- Duress PIN.
+- Deploy/build nativo.
+- Roteiro formal de demonstração do TCC.
 
-### Fase 6: Redesign Premium UI/UX (Concluído)
-- [x] Implementação de navegação e componentes Glassmorphism (expo-blur).
-- [x] Refatoração pública do Lumina Notes para visual premium.
-- [x] Refatoração das telas ocultas com tipografia, contrastes e hierarquia consistentes.
+## 2. Próximas Sprints
 
-### Fase 7: Segurança Primária, KYC e Validação de Gênero (Concluído)
-- [x] Implementação do simulador de verificação biométrica e CPF (KYC simulado).
-- [x] Bloqueio de acesso total ao mapa para contas não-verificadas.
-- [x] Construção do Perfil Oculto com patente, repasse de medalhas e gerência de conta (Logout).
+### Sprint 1 - Estabilização Técnica
+- Manter `npm run typecheck` passando em todo commit.
+- Conferir se `types/database.types.ts` reflete o schema real do Supabase.
+- Validar as RPCs `complete_kyc`, `confirm_risk_report`, `dispatch_guardian_alert` e `get_visible_locations`.
+- Testar navegação entre disfarce, login, mapa, perfil, rede, contatos, alerta e volta para casa.
+- Revisar RLS para `profiles`, `guardians_circle`, `guardian_alerts`, `user_locations`, `location_sharing_settings`, `location_sharing_allowed`, `map_risk_reports` e `trusted_contacts`.
 
-### Fase 8: Inteligência Preventiva e Redes Ocultas (Atual)
-- [ ] Criação do sistema de Grupos / Círculos de Guardiãs Locais.
-- [ ] Modo "Volta Pra Casa" (ETA). Temporizador com dead-man's switch para alerta automático.
+### Sprint 2 - Documentação e Base do TCC
+- Documentar arquitetura: Expo Router, Supabase, Zustand, hooks e serviços.
+- Criar roteiro de demonstração: disfarce, acesso oculto, mapa, cadastro de risco, validação, contato, alerta e comunidade.
+- Registrar limitações acadêmicas: KYC simulado, SMS dependente do compositor do celular, ausência de Realtime completo e ausência de serviço externo de emergência.
+- Manter o checklist de QA em `QA_CHECKLIST.md` atualizado para Android/Expo Go.
 
-### Fase 9: Timeline Georreferenciada & Gamificação
-- [ ] Waze da Segurança: Mural de alertas Live e engajamento dinâmico no Supabase Realtime.
-- [ ] Sistema lógico e algorítmico de ganho de Medalhas no banco de dados.
+### Sprint 3 - Redesign Discreto e Seguro
+- Priorizar interface discreta, consistente e segura.
+- Melhorar hierarquia visual das telas internas sem expor termos sensíveis fora do contexto autenticado.
+- Deixar telas de disfarce mais convincentes como apps comuns.
+- Revisar estados vazios, botões principais, textos de erro e feedbacks.
+- Melhorar legibilidade do mapa, pinos, heatmap, painel inferior e ações críticas.
 
-### Fase 10: Defesa Suprema & Deploy
-- [ ] Duress PIN (Senha falsa de Coação).
-- [ ] Deploy nativo final e encapsulamento anti-rastreio.
+### Sprint 4 - Comunidade em Fases
+- Fase 1: validar círculos privados locais com convite por código/@username, remoção, status e alertas in-app.
+- Fase 2: validar chat em tempo real da rede com texto, localização, notícias e imagem por link.
+- Implementar permissões de localização: ninguém, selecionadas, toda rede.
+- Validar privacidade ponta a ponta com RLS e testes manuais.
 
-## 3. Princípios de UX/Produto
+### Sprint 5 - Fechamento para Apresentação
+- Persistir o "Volta Pra Casa" no banco com status, expiração e cancelamento.
+- Implementar medalhas mínimas demonstráveis: primeiro relato, primeira validação, rede criada e apoio acionado.
+- Preparar build ou demonstração confiável via Expo Go.
+- Preparar roteiro final do TCC: problema, público-alvo, solução, arquitetura, diferenciais, riscos éticos, limitações e próximos passos.
 
-### Estratégia de Camuflagem (Stealth Mode)
-- O app se apresenta externamente como **"Lumina Notes"** — um app de anotações inofensivo.
-- **Nenhuma tela visível** deve conter palavras como "Guardião", "Segurança", "SOS", "Risco" ou "Proteção".
-- O objetivo é proteger usuárias cujos agressores inspecionam o celular.
-- Funcionalidades sensíveis (mapa de risco, SOS, contatos de confiança) ficam atrás do login.
+## 3. Demonstração do MVP
 
-### Protocolo de Gatilho (Acesso ao Guardião)
-- **Long Press (600ms)** no FAB da Home (Lumina Notes) desativa o disfarce e abre `/(hidden)/map`.
-- O tap simples no FAB exibe Toast "Funcionalidade em desenvolvimento" (comportamento normal de app de notas).
-- Feedback tátil (Haptics Heavy) confirma a ativação sem indicação visual.
-- Rotas sensíveis ficam no grupo `(hidden)/` — invisíveis na navegação convencional.
+1. Abrir o app em modo disfarce.
+2. Usar long press no gatilho oculto para acessar a área interna.
+3. Fazer login/cadastro.
+4. Exibir mapa com localização atual.
+5. Criar ponto de risco e selecionar categoria.
+6. Confirmar um ponto existente e mostrar contador/heatmap.
+7. Cadastrar contato de confiança.
+8. Preparar envio de localização.
+9. Abrir comunidade/círculo e mostrar código de convite.
+10. Iniciar "Volta Pra Casa" e demonstrar o temporizador.
 
-### Paleta de Cores — Dark Mode (`constants/theme.ts`)
-| Token         | Cor       | Uso                                    |
-|---------------|-----------|----------------------------------------|
-| `background`  | `#121214` | Fundo principal (não ilumina o rosto)  |
-| `surface`     | `#202024` | Cards, inputs, superfícies elevadas    |
-| `primary`     | `#8B5CF6` | Botões de ação, links, destaques       |
-| `text`        | `#F3F4F6` | Texto principal                        |
-| `textMuted`   | `#A1A1AA` | Labels, placeholders, texto secundário |
-| `danger`      | `#EF4444` | Exclusivo para botão SOS interno       |
-| `border`      | `#3F3F46` | Bordas de inputs e divisores           |
+## 4. Testes e Validação
 
-### Design Tokens
-- `spacing`: sm(8), md(16), lg(24), xl(32)
-- `borderRadius`: sm(4), md(8), lg(12), round(9999)
+- `npm run typecheck`.
+- Fluxo público: abertura, disfarce escolhido e acesso oculto.
+- Fluxo autenticado: cadastro, login, perfil e logout.
+- Mapa: permissão de localização, pinos, confirmação e heatmap.
+- SOS: contato externo, fallback de share e status do alerta.
+- Comunidade: adicionar por código/@username, listar e remover integrante.
+- Privacidade: usuário sem sessão não acessa rota interna; dados privados respeitam RLS.
+- Dispositivo real: validar GPS, SMS/share, haptics e mapa no Expo Go.
 
-## 4. Regras do Agente
-- Nunca iniciar código sem aprovação prévia do planejamento.
-- Sempre atualizar o status `[ ]` para `[x]` neste arquivo ao finalizar uma tarefa.
-- Consultar o schema de dados aqui ou no MCP antes de gerar código de frontend.
-- **Nunca expor o nome "Guardião" ou termos de segurança em interfaces visíveis ao usuário.**
+## 5. Regras de Produto
+
+- A interface pública deve parecer um app comum e não revelar o objetivo de segurança.
+- Termos como "Guardião", "segurança", "SOS", "risco" e "proteção" devem ficar restritos à área autenticada.
+- Recursos sensíveis devem priorizar privacidade, consentimento e clareza.
+- O projeto deve priorizar uma demonstração confiável para o TCC antes de novas features grandes.
+
+## 6. Variáveis de Ambiente
+
+Use `.env` localmente e mantenha `.env.example` como referência segura:
+
+```env
+EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your-public-anon-key
+```

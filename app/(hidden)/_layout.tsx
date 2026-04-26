@@ -11,7 +11,8 @@ export default function HiddenLayout() {
     if (!initialized) return;
 
     // Check if we are trying to access a hidden route BUT we are not in the auth group
-    const inHiddenAuth = segments[1] === 'auth';
+    const routeSegments = segments as string[];
+    const inHiddenAuth = routeSegments[1] === 'auth';
 
     if (!session && !inHiddenAuth) {
       router.replace('/(hidden)/auth/sign-in');

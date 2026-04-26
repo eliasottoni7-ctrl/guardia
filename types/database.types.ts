@@ -146,6 +146,84 @@ export type Database = {
         }
         Relationships: []
       }
+      guardian_alerts: {
+        Row: {
+          created_at: string
+          id: string
+          lat: number
+          lng: number
+          message: string
+          receiver_id: string
+          seen: boolean
+          sender_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          lat: number
+          lng: number
+          message: string
+          receiver_id: string
+          seen?: boolean
+          sender_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          lat?: number
+          lng?: number
+          message?: string
+          receiver_id?: string
+          seen?: boolean
+          sender_id?: string
+        }
+        Relationships: []
+      }
+      location_sharing_allowed: {
+        Row: {
+          allowed_user_id: string
+          created_at: string | null
+          id: string
+          user_id: string
+        }
+        Insert: {
+          allowed_user_id: string
+          created_at?: string | null
+          id?: string
+          user_id: string
+        }
+        Update: {
+          allowed_user_id?: string
+          created_at?: string | null
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      location_sharing_settings: {
+        Row: {
+          created_at: string | null
+          id: string
+          mode: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          mode: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          mode?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       map_risk_confirmations: {
         Row: {
           created_at: string
@@ -215,6 +293,39 @@ export type Database = {
             referencedColumns: ["code"]
           },
         ]
+      }
+      network_chat_messages: {
+        Row: {
+          body: string
+          created_at: string
+          id: string
+          image_url: string | null
+          kind: string
+          lat: number | null
+          lng: number | null
+          sender_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          kind?: string
+          lat?: number | null
+          lng?: number | null
+          sender_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          kind?: string
+          lat?: number | null
+          lng?: number | null
+          sender_id?: string
+        }
+        Relationships: []
       }
       profiles: {
         Row: {
@@ -297,12 +408,69 @@ export type Database = {
         }
         Relationships: []
       }
+      user_locations: {
+        Row: {
+          created_at: string | null
+          lat: number
+          lng: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          lat: number
+          lng: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          lat?: number
+          lng?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      complete_kyc: {
+        Args: { p_user_id: string; p_cpf: string; p_username: string | null }
+        Returns: {
+          error?: string
+          profile?: {
+            cpf: string | null
+            full_name: string | null
+            id: string
+            kyc_verified: boolean | null
+            medals: string[] | null
+            reputation_score: number | null
+            share_code: string | null
+            updated_at: string | null
+            username: string | null
+          }
+          success: boolean
+        }
+      }
       confirm_risk_report: { Args: { p_report_id: string }; Returns: Json }
+      dispatch_guardian_alert: {
+        Args: { p_lat: number; p_lng: number; p_message: string }
+        Returns: { alerts_sent: number }
+      }
+      get_visible_locations: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          full_name: string
+          lat: number
+          lng: number
+          updated_at: string
+          user_id: string
+          username: string | null
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

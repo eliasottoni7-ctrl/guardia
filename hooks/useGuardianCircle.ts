@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import type { Tables } from '../types/database.types';
 
-export type CircleMember = Tables<'Profiles'> & { status: string; relation_id: string };
+export type CircleMember = Tables<'profiles'> & { status: string; relation_id: string };
 
 export function useGuardianCircle() {
   const { session } = useAuthStore();
@@ -47,7 +47,7 @@ export function useGuardianCircle() {
            status: rel?.status || 'pending',
            relation_id: rel?.id || ''
          };
-       }) as any[];
+       }) as CircleMember[];
        setMembers(mapped);
     }
 
@@ -78,14 +78,24 @@ export function useGuardianCircle() {
        return { error: 'Você não pode se adicionar.' };
     }
 
-    // Add relation
+    // Add relation in both directions so chat and alerts work for both users in the MVP flow.
     const { error: insertErr } = await supabase
       .from('guardians_circle')
-      .insert({
-        user_id: session.user.id,
-        guardian_id: targetProfile.id,
-        status: 'accepted' // Auto accepted in this MVP flow
-      });
+      .upsert(
+        [
+          {
+            user_id: session.user.id,
+            guardian_id: targetProfile.id,
+            status: 'accepted',
+          },
+          {
+            user_id: targetProfile.id,
+            guardian_id: session.user.id,
+            status: 'accepted',
+          },
+        ],
+        { onConflict: 'user_id,guardian_id' }
+      );
 
     if (insertErr) {
        if (insertErr.code === '23505') {
